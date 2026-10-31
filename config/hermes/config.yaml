@@ -1,0 +1,58 @@
+# Caduceus starter configuration for Hermes Agent.
+#
+# bin/setup copies this to $HERMES_DATA_DIR/config.yaml (./data/hermes by
+# default) the first time it runs, and never overwrites it afterwards. Hermes
+# expands ${VAR} references from the container environment, which
+# docker-compose.yml fills from .env, so no secrets are stored here.
+#
+# Everything else Hermes supports can be added over time: run
+# `docker compose exec hermes hermes config --help`, or edit it in the dashboard.
+
+model:
+  provider: caduceus-local
+  default: ${CADUCEUS_AGENT_MODEL}
+  base_url: ${CADUCEUS_LLM_BASE_URL}
+  api_key: ${CADUCEUS_LLM_API_KEY}
+  # Most self-hosted servers implement /v1/chat/completions but not /v1/responses.
+  api_mode: chat_completions
+
+providers:
+  caduceus-local:
+    name: Local models
+    base_url: ${CADUCEUS_LLM_BASE_URL}
+    api_key: ${CADUCEUS_LLM_API_KEY}
+    api_mode: chat_completions
+    model: ${CADUCEUS_AGENT_MODEL}
+
+# Long-term memory through the Mnemosyne plugin's local SQLite store.
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  provider: mnemosyne
+  mnemosyne:
+    # One person uses this agent, so what it learns in one conversation should
+    # be recallable in the next. Mnemosyne's default keeps memories per session.
+    default_scope: global
+
+# Search through the bundled SearXNG; read pages with the bundled Iris plugin.
+web:
+  search_backend: searxng
+  extract_backend: iris
+  # Keep requests on this stack; report local failures instead of using public
+  # anonymous providers that can hide a broken integration.
+  keyless_fallback: false
+  keyless_rescue: false
+
+# The agent's shell runs inside the Hermes container, rooted at its data volume.
+terminal:
+  backend: local
+  cwd: /opt/data
+
+# Scheduled jobs use the same local model as conversations.
+cron:
+  model_provider: caduceus-local
+  model: ${CADUCEUS_AGENT_MODEL}
+
+matrix:
+  # In group rooms, answer only when @mentioned (DMs always get answers).
+  require_mention: true

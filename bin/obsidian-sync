@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Set up and inspect Obsidian Sync for the vault Hermes uses.
+#   bin/obsidian-sync setup ["Remote vault name"]   log in and link the vault
+#   bin/obsidian-sync status                        show sync state
+#   bin/obsidian-sync ob <args...>                  run any Obsidian Headless command
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+env_get() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- || true; }
+uid="$(env_get HERMES_UID)"; gid="$(env_get HERMES_GID)"
+ob() { docker compose exec -it --user "${uid:-1000}:${gid:-1000}" obsidian-sync ob "$@"; }
+# Setup runs in a one-off container while the service is stopped, so the
+# service cannot start continuous sync before the first sync finishes.
+ob_once() {
+  docker compose run --rm --no-deps -it --user "${uid:-1000}:${gid:-1000}" \
+    --entrypoint ob obsidian-sync "$@"
+}
+
+case "${1:-}" in
+  setup)
+    docker compose stop obsidian-sync >/dev/null
+    ob_once login
+    remote="${2:-}"
+    if [ -z "$remote" ]; then
+      ob_once sync-list-remote
+      read -rp "Remote vault to sync (name or ID): " remote
+    fi
+    # End-to-end encrypted vaults prompt for their password here.
+    ob_once sync-setup --vault "$remote" --path /vault --device-name Caduceus
+    # The first sync only downloads, so the remote copy wins over stale local
+    # files. Files that exist only locally upload once two-way sync starts.
+    ob_once sync-config --path /vault --mode pull-only >/dev/null
+    ob_once sync --path /vault
+    ob_once sync-config --path /vault --mode bidirectional >/dev/null
+    docker compose up -d obsidian-sync >/dev/null
+    echo "Obsidian Sync is running. Follow it with: docker compose logs -f obsidian-sync"
+    ;;
+  status) ob sync-status --path /vault ;;
+  ob) shift; ob "$@" ;;
+  *) sed -n '3,6p' "$0" | sed 's/^# //'; exit 1 ;;
+esac

@@ -1,0 +1,82 @@
+# SearXNG settings for the Caduceus stack.
+# Internal metasearch queried by Hermes over the JSON API.
+# Docs: https://docs.searxng.org/admin/settings/
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "Caduceus SearXNG"
+
+search:
+  # Enable the JSON output format so services can query /search?format=json
+  # (default ships HTML only).
+  formats:
+    - html
+    - json
+  autocomplete: ""
+  default_lang: "en"
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  # secret_key intentionally NOT set here: the SEARXNG_SECRET env var from
+  # .env (passed via docker-compose.yml) overrides any YAML value, so a key
+  # here would be dead config that only *looks* authoritative.
+  # Internal-only instance: disable the bot/rate limiter so programmatic
+  # queries from Hermes are not blocked. Do NOT expose this
+  # instance to the public internet with the limiter off.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+# Outgoing requests to upstream engines: give slow-but-working engines more time
+# before they're dropped, and a larger pool for parallel fan-out.
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+  pool_connections: 200
+  pool_maxsize: 40
+  enable_http2: true
+
+# Engine pool hardening. Run several general engines so a CAPTCHA / rate-limit on
+# one (DuckDuckGo and Brave are frequently throttled for self-hosted instances)
+# doesn't starve results — Google/Bing/Startpage/Mojeek/Wikipedia carry the load.
+# Entries merge by name onto SearXNG's defaults (use_default_settings: true);
+# weights bias ranking toward the most reliable engines.
+engines:
+  - name: google
+    disabled: false
+    timeout: 6.0
+    weight: 2
+  - name: bing
+    disabled: false
+    timeout: 6.0
+    weight: 2
+  - name: startpage
+    disabled: false
+    timeout: 6.0
+    weight: 2
+  - name: mojeek
+    disabled: false
+    timeout: 6.0
+    weight: 1
+  - name: qwant
+    disabled: false
+    timeout: 6.0
+  - name: duckduckgo
+    disabled: false
+    timeout: 5.0
+  - name: brave
+    disabled: false
+    timeout: 5.0
+  - name: wikipedia
+    disabled: false
+    timeout: 5.0
+    weight: 1
+  - name: wikidata
+    disabled: false
+    timeout: 5.0
+
+# Use the bundled Valkey for caching (matches the searxng-valkey service).
+valkey:
+  url: valkey://searxng-valkey:6379/0

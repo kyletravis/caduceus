@@ -1,0 +1,12 @@
+# Secrets: copy .env.example to .env (bin/setup does this). Never commit .env.
+.env
+
+# Upstream sources, cloned by bin/setup at the commits in versions.env.
+/vendor/
+
+# Runtime state: Hermes config, sessions, uploads.
+/data/
+
+# OS / editor cruft
+.DS_Store
+*.swp

@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#
+# Prepare a fresh Caduceus checkout. Safe to re-run: it never overwrites your
+# .env values, your Hermes config, or a vendor/ checkout you have changed.
+#
+#   1. Create .env from .env.example and generate the secrets that are empty.
+#   2. Clone Hermes Agent into ./vendor at the commit
+#      pinned in versions.env, and apply the patches in ./patches.
+#   3. Create the Hermes data directory and install the starter config.
+#
+# Afterwards: edit .env (models, optional Matrix), then
+#   docker compose build && docker compose up -d
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+say()  { printf '%s\n' "$*"; }
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+for cmd in git docker openssl; do
+  command -v "$cmd" >/dev/null || fail "'$cmd' is required but not installed"
+done
+docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 ('docker compose') is required"
+
+# ---------------------------------------------------------------------------
+# 1. .env
+# ---------------------------------------------------------------------------
+env_get() { grep -E "^$1=" .env | head -1 | cut -d= -f2- || true; }
+env_set() {
+  local tmp; tmp="$(mktemp)"
+  awk -v k="$1" -v v="$2" 'BEGIN{FS=OFS="="} $1==k{print k"="v; next} {print}' .env > "$tmp"
+  cat "$tmp" > .env && rm -f "$tmp"
+}
+fill_if_empty() {  # fill_if_empty KEY VALUE
+  if [ -z "$(env_get "$1")" ]; then env_set "$1" "$2"; say "  generated $1"; fi
+}
+
+say "==> Settings (.env)"
+if [ ! -f .env ]; then
+  cp .env.example .env
+  chmod 600 .env
+  say "  created .env from .env.example"
+fi
+env_set HERMES_UID "$(id -u)"
+env_set HERMES_GID "$(id -g)"
+fill_if_empty API_SERVER_KEY "$(openssl rand -hex 24)"
+fill_if_empty SEARXNG_SECRET "$(openssl rand -hex 32)"
+new_dashboard_password=""
+if [ -z "$(env_get DASHBOARD_PASSWORD)" ]; then
+  new_dashboard_password="$(openssl rand -base64 18 | tr -d '/+=')"
+  env_set DASHBOARD_PASSWORD "$new_dashboard_password"
+  say "  generated DASHBOARD_PASSWORD"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Upstream sources
+# ---------------------------------------------------------------------------
+# shellcheck source=../versions.env
+. ./versions.env
+
+fetch() {  # fetch NAME REPO REF COMMIT [OUR_PATCH...]
+  local name="$1" repo="$2" ref="$3" commit="$4" dir="vendor/$1" patch
+  shift 4
+  if [ ! -d "$dir/.git" ]; then
+    say "  cloning $name $ref"
+    git -c advice.detachedHead=false clone --quiet "$repo" "$dir"
+    git -C "$dir" -c advice.detachedHead=false checkout --quiet "$commit"
+    return
+  fi
+  local head; head="$(git -C "$dir" rev-parse HEAD)"
+  # Moving to a new version: take our own patches back out first, newest
+  # first, so they don't count as local changes. They are re-applied below.
+  if [ "$head" != "$commit" ]; then
+    for ((i = $#; i >= 1; i--)); do
+      patch="${!i}"
+      if git -C "$dir" apply --reverse --check "$ROOT/$patch" 2>/dev/null; then
+        git -C "$dir" apply --reverse "$ROOT/$patch"
+      fi
+    done
+  fi
+  if [ "$head" = "$commit" ]; then
+    say "  $name already at $ref"
+  elif [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then
+    say "  WARNING: $dir has local changes and is not at $ref; leaving it alone"
+  else
+    say "  moving $name to $ref"
+    git -C "$dir" fetch --quiet --tags origin
+    git -C "$dir" -c advice.detachedHead=false checkout --quiet "$commit"
+  fi
+}
+
+apply() {  # apply DIR PATCH
+  if git -C "$1" apply --reverse --check "$ROOT/$2" 2>/dev/null; then
+    say "  already applied: $2"
+  elif git -C "$1" apply --check "$ROOT/$2" 2>/dev/null; then
+    git -C "$1" apply "$ROOT/$2"
+    say "  applied: $2"
+  else
+    fail "$2 does not apply to $1. If you changed versions.env, update the patch first."
+  fi
+}
+
+say "==> Upstream sources (vendor/)"
+mkdir -p vendor
+fetch hermes-agent "$HERMES_REPO"    "$HERMES_REF"    "$HERMES_COMMIT" \
+  patches/hermes-plugin-workspace.patch patches/hermes-control-socket-mode.patch
+apply vendor/hermes-agent patches/hermes-plugin-workspace.patch
+apply vendor/hermes-agent patches/hermes-control-socket-mode.patch
+sh docker/hermes/write-build-stamp.sh vendor/hermes-agent "$HERMES_REF"
+
+# ---------------------------------------------------------------------------
+# 3. Hermes data directory
+# ---------------------------------------------------------------------------
+say "==> Hermes data"
+data_dir="$(env_get HERMES_DATA_DIR)"
+data_dir="${data_dir:-./data/hermes}"
+# Create these as you, before Docker creates them as root inside the bind mount.
+mkdir -p "$data_dir/uploads"
+vault_dir="$(env_get OBSIDIAN_VAULT_DIR | tr -d '"')"
+mkdir -p "${vault_dir:-./data/obsidian}"
+if [ ! -f "$data_dir/config.yaml" ]; then
+  cp config/hermes/config.yaml "$data_dir/config.yaml"
+  say "  installed starter config at $data_dir/config.yaml"
+else
+  say "  keeping existing $data_dir/config.yaml"
+fi
+
+say ""
+say "Setup complete."
+if [ -n "$new_dashboard_password" ]; then
+  say "Dashboard login: $(env_get DASHBOARD_USERNAME) / $new_dashboard_password  (stored in .env)"
+fi
+say "Next: review the model settings in .env, then run"
+say "  docker compose build && docker compose up -d"

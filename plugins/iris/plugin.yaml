@@ -1,0 +1,7 @@
+name: iris
+version: 0.1.0
+description: "Local web page reader for web_extract: direct fetch with readable-text extraction, PDF text, and a headless Chromium fallback for script-rendered pages. No external service."
+author: Caduceus
+kind: backend
+provides_web_providers:
+  - iris

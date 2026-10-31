@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Exercise the actual Hermes backends, including cross-session Mnemosyne recall.
+# Memory checks use a throwaway database and leave yours untouched.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+docker compose exec -T --user hermes -e HOME=/opt/data hermes \
+  python /opt/caduceus/hermes/check-integrations.py

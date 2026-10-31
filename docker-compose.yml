@@ -1,0 +1,192 @@
+# ============================================================================
+# Caduceus: a self-hosted personal AI agent
+#
+#   Hermes Agent  (the brain + chat gateways)       ./vendor/hermes-agent
+#   SearXNG       (private metasearch)              official image
+#   Iris          (web page reading)                ./plugins/iris, Hermes plugin
+#   Mnemosyne     (long-term memory)                Hermes plugin, SQLite in hermes
+#   Obsidian Sync (vault sync)                      ./docker/obsidian-sync
+#
+# First run: see INSTALL.md (bin/setup clones ./vendor and prepares config).
+#   docker compose build
+#   docker compose up -d
+#
+# Every setting comes from .env (copy .env.example). Services reach each other
+# by service name on the `caduceus` network, and reach model servers running
+# on the host via host.docker.internal.
+# ============================================================================
+
+name: caduceus
+
+networks:
+  caduceus:
+    driver: bridge
+
+volumes:
+  searxng-valkey-data:
+  hermes-matrix-data:
+  hermes-dependencies:
+  hermes-mnemosyne-data:
+  obsidian-sync-config:
+
+x-hermes-volumes: &hermes-volumes
+  - ${HERMES_DATA_DIR:-./data/hermes}:/opt/data
+  # Linux dependency trees contain names differing only by case. A macOS or
+  # Windows bind mount cannot store them reliably.
+  - hermes-dependencies:/opt/data/installs
+  # Matrix's SQLite store also needs Linux filesystem locking.
+  - hermes-matrix-data:/opt/data/platforms/matrix
+  # Mnemosyne's SQLite database and embedding model cache, kept off the bind
+  # mount for the same reason.
+  - hermes-mnemosyne-data:/opt/data/mnemosyne
+  # Obsidian vault, read and written by Hermes's bundled obsidian skill and
+  # kept in sync by the obsidian-sync service.
+  - "${OBSIDIAN_VAULT_DIR:-./data/obsidian}:/opt/vault"
+  - ./docker/hermes:/opt/caduceus/hermes:ro
+
+x-host-gateway: &host-gateway
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+# Settings shared by Hermes and its initialization job. Values like ${CADUCEUS_LLM_BASE_URL}
+# are also referenced from config/hermes/config.yaml, which Hermes expands at load.
+x-hermes-env: &hermes-env
+  HERMES_UID: "${HERMES_UID:-1000}"
+  HERMES_GID: "${HERMES_GID:-1000}"
+  CADUCEUS_LLM_BASE_URL: "${CADUCEUS_LLM_BASE_URL}"
+  CADUCEUS_LLM_API_KEY: "${CADUCEUS_LLM_API_KEY}"
+  CADUCEUS_AGENT_MODEL: "${CADUCEUS_AGENT_MODEL}"
+  # Keep initialization from generating a saved key that overrides this key.
+  API_SERVER_KEY: "${API_SERVER_KEY}"
+  SEARXNG_URL: "http://searxng:8080"
+  # Mnemosyne stores memory in SQLite inside this container. Embeddings run
+  # locally (BAAI/bge-small-en-v1.5, downloaded once from Hugging Face).
+  MNEMOSYNE_DATA_DIR: "/opt/data/mnemosyne/data"
+  MNEMOSYNE_FASTEMBED_CACHE_DIR: "/opt/data/mnemosyne/models"
+  # No model calls: consolidation and fact extraction use Mnemosyne's built-in
+  # keyword encoding, leaving the model server to the agent.
+  MNEMOSYNE_LLM_ENABLED: "false"
+  # Let embedding similarity admit a memory on its own. Default recall first
+  # requires shared words, so "what do I like to eat" misses "favorite food".
+  MNEMOSYNE_POLYPHONIC_RECALL: "1"
+
+services:
+  # Prepare integrations before the gateway and dashboard start. Installation
+  # failures stop startup instead of silently disabling external memory/tools.
+  hermes-init:
+    image: caduceus-hermes:local
+    pull_policy: never
+    restart: "no"
+    <<: *host-gateway
+    networks: [caduceus]
+    volumes:
+      - ${HERMES_DATA_DIR:-./data/hermes}:/opt/data
+      - hermes-dependencies:/opt/data/installs
+      - hermes-mnemosyne-data:/opt/data/mnemosyne
+      - ./docker/hermes:/opt/caduceus/hermes:ro
+      - ./versions.env:/opt/caduceus/versions.env:ro
+      - ./plugins/iris:/opt/caduceus/plugins/iris:ro
+    environment: *hermes-env
+    working_dir: /opt/data
+    entrypoint: ["/bin/sh", "/opt/caduceus/hermes/init.sh"]
+
+  # ==========================================================================
+  # Hermes Agent: supervised gateway, web dashboard and OpenAI-compatible API
+  # ==========================================================================
+  hermes:
+    build: ./vendor/hermes-agent
+    image: caduceus-hermes:local
+    container_name: caduceus-hermes
+    restart: unless-stopped
+    <<: *host-gateway
+    networks: [caduceus]
+    depends_on:
+      hermes-init:
+        condition: service_completed_successfully
+      searxng:
+        condition: service_started
+    ports:
+      - "${API_SERVER_BIND:-127.0.0.1}:${API_SERVER_PORT:-8642}:8642"
+      # Dashboard access stays on localhost; use an SSH tunnel for remote access.
+      - "127.0.0.1:${DASHBOARD_PORT:-9119}:9119"
+    volumes: *hermes-volumes
+    # Agent work with relative paths lands on the writable data volume instead
+    # of the root-owned image directory.
+    working_dir: /opt/data
+    environment:
+      <<: *hermes-env
+      HERMES_ORIG_CWD: /opt/data
+      HERMES_CWD: /opt/data
+      OBSIDIAN_VAULT_PATH: /opt/vault
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "0.0.0.0"
+      HERMES_GATEWAY_BOOTSTRAP_STATE: running
+      # The image's s6 supervisor manages both processes in this container.
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_HOST: "0.0.0.0"
+      HERMES_DASHBOARD_PORT: "9119"
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: "${DASHBOARD_USERNAME}"
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: "${DASHBOARD_PASSWORD}"
+      # Matrix (optional): leave MATRIX_HOMESERVER empty to keep Matrix off.
+      MATRIX_HOMESERVER: "${MATRIX_HOMESERVER:-}"
+      MATRIX_USER_ID: "${MATRIX_USER_ID:-}"
+      MATRIX_PASSWORD: "${MATRIX_PASSWORD:-}"
+      MATRIX_ACCESS_TOKEN: "${MATRIX_ACCESS_TOKEN:-}"
+      MATRIX_DEVICE_ID: "${MATRIX_DEVICE_ID:-}"
+      MATRIX_RECOVERY_KEY: "${MATRIX_RECOVERY_KEY:-}"
+      MATRIX_E2EE_MODE: "${MATRIX_E2EE_MODE:-}"
+      MATRIX_ALLOWED_USERS: "${MATRIX_ALLOWED_USERS:-}"
+      MATRIX_HOME_ROOM: "${MATRIX_HOME_ROOM:-}"
+      MATRIX_FREE_RESPONSE_ROOMS: "${MATRIX_FREE_RESPONSE_ROOMS:-}"
+    command: ["gateway", "run"]
+    healthcheck:
+      test: ["CMD", "python", "/opt/caduceus/hermes/healthcheck.py"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+
+  # ==========================================================================
+  # SearXNG: privacy-respecting metasearch (JSON API on :8080)
+  # ==========================================================================
+  searxng:
+    image: searxng/searxng:2026.10.24-ef0ec03da
+    container_name: caduceus-searxng
+    restart: unless-stopped
+    networks: [caduceus]
+    depends_on:
+      - searxng-valkey
+    ports:
+      - "127.0.0.1:${SEARXNG_PORT:-8088}:8080"
+    volumes:
+      - ./config/searxng:/etc/searxng:rw
+    environment:
+      SEARXNG_SECRET: "${SEARXNG_SECRET}"
+
+  searxng-valkey:
+    image: valkey/valkey:8-alpine
+    container_name: caduceus-searxng-valkey
+    restart: unless-stopped
+    networks: [caduceus]
+    command: valkey-server --save 30 1 --loglevel warning
+    volumes:
+      - searxng-valkey-data:/data
+
+  # ==========================================================================
+  # Obsidian Sync: keeps the vault Hermes uses in sync with your other devices
+  # through the official headless client. Needs an Obsidian Sync subscription
+  # and a one-time `bin/obsidian-sync setup`; until then it waits.
+  # Don't also sync this folder with the Obsidian desktop app.
+  # ==========================================================================
+  obsidian-sync:
+    build: ./docker/obsidian-sync
+    image: caduceus-obsidian-sync:local
+    container_name: caduceus-obsidian-sync
+    restart: unless-stopped
+    volumes:
+      - "${OBSIDIAN_VAULT_DIR:-./data/obsidian}:/vault"
+      # Login token and sync state (SQLite), kept off the bind mount.
+      - obsidian-sync-config:/config
+    environment:
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"

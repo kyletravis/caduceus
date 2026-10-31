@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# Reset Caduceus Docker resources without pruning the rest of the Docker host.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$ROOT"
+
+say()  { printf '%s\n' "$*"; }
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+usage() {
+  cat <<'EOF'
+Usage: bin/cleanup [--dry-run] [--reset-data] [--yes] [--project-name NAME]
+
+Remove the Compose project's containers (including orphans), named and attached
+anonymous volumes, networks, Caduceus image tags, and dangling project images.
+This permanently deletes databases, learned memories and Matrix encryption state.
+
+  --dry-run            Show resources and commands without changing anything.
+  --reset-data         Also delete HERMES_DATA_DIR (default: ./data/hermes),
+                       including conversations, uploads, skills and saved config.
+  --yes                Skip the interactive confirmation.
+  --project-name NAME  Override the Compose project name used for resource labels.
+  -h, --help           Show this help.
+
+Repository .env, vendor/ and starter config are retained. Shared upstream images
+and build cache are retained. No global Docker prune commands are used.
+EOF
+}
+
+dry_run=false
+reset_data=false
+assume_yes=false
+compose=(docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.yml")
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=true ;;
+    --reset-data) reset_data=true ;;
+    --yes) assume_yes=true ;;
+    --project-name)
+      [ "$#" -ge 2 ] && [[ "$2" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
+        fail '--project-name requires a valid Compose project name'
+      compose+=(--project-name "$2")
+      shift
+      ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown argument: $1 (see --help)" ;;
+  esac
+  shift
+done
+
+command -v docker >/dev/null || fail 'Docker is required'
+docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 or later is required'
+# Let Compose resolve .env and shell overrides without executing .env as code.
+project="$("${compose[@]}" config | sed -n 's/^name: //p' | tr -d "\"'")"
+[[ "$project" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || fail 'could not resolve the Compose project name'
+
+data_dir=''
+if "$reset_data"; then
+  data_dir="$("${compose[@]}" config --environment | sed -n 's/^HERMES_DATA_DIR=//p')"
+  data_dir="${data_dir:-./data/hermes}"
+  case "$data_dir" in /*) ;; *) data_dir="$ROOT/$data_dir" ;; esac
+  while [ "$data_dir" != / ] && [[ "$data_dir" == */ ]]; do
+    data_dir="${data_dir%/}"
+  done
+  [ ! -L "$data_dir" ] || fail "refusing to delete a symlink: $data_dir"
+  if [ -e "$data_dir" ]; then
+    [ -d "$data_dir" ] || fail "Hermes data path is not a directory: $data_dir"
+    data_dir="$(cd "$data_dir" && pwd -P)"
+    # A misconfigured bind mount must not turn a reset into deleting the checkout
+    # or a parent such as the home directory or filesystem root.
+    case "$ROOT/" in "$data_dir/"*) fail "refusing to delete the repository or an ancestor: $data_dir" ;; esac
+    [ "$data_dir" != / ] || fail 'refusing to delete /'
+    case "${HOME:-/}/" in "$data_dir/"*) fail "refusing to delete the home directory or an ancestor: $data_dir" ;; esac
+    case "$data_dir/" in
+      "$ROOT/.git/"*|"$ROOT/vendor/"*) fail "refusing to delete installation files: $data_dir" ;;
+    esac
+    case "$data_dir/" in
+      "$ROOT/"*)
+        if command -v git >/dev/null && [ -e "$ROOT/.git" ] &&
+           [ -n "$(git -C "$ROOT" ls-files -- "$data_dir")" ]; then
+          fail "refusing to delete a directory containing tracked files: $data_dir"
+        fi
+        ;;
+    esac
+  fi
+fi
+
+docker info >/dev/null 2>&1 || fail 'cannot reach Docker; start Docker and check the active context'
+label="com.docker.compose.project=$project"
+containers="$(docker container ls --all --quiet --filter "label=$label")"
+volumes="$(docker volume ls --quiet --filter "label=$label")"
+networks="$(docker network ls --quiet --filter "label=$label")"
+# Delete tags rather than forcing image IDs, so unrelated tags and images in use
+# by other applications remain protected by Docker. The label catches old builds
+# whose caduceus-* tag was replaced during a rebuild.
+images="$(docker image ls --filter 'reference=caduceus-*' --format '{{.Repository}}:{{.Tag}}' | sort -u)"
+dangling_images="$(docker image ls --quiet --filter dangling=true --filter "label=$label" | sort -u)"
+
+show() {
+  local title="$1" items="$2" item
+  say "$title:"
+  if [ -z "$items" ]; then say '  (none)'; return; fi
+  while IFS= read -r item; do printf '  %s\n' "$item"; done <<< "$items"
+}
+say "Caduceus cleanup (Compose project: $project)"
+show 'Containers' "$containers"
+show 'Named volumes' "$volumes"
+show 'Networks' "$networks"
+show 'Caduceus image tags' "$images"
+show 'Dangling project images' "$dangling_images"
+if "$reset_data"; then
+  say "Delete Hermes host data: $data_dir"
+else
+  say 'Keep Hermes host data (use --reset-data to delete it too).'
+fi
+say 'Keep repository .env, vendor/, starter config, upstream images and build cache.'
+
+if ! "$dry_run" && ! "$assume_yes"; then
+  [ -t 0 ] || fail 'confirmation requires a terminal; use --yes or preview with --dry-run'
+  say ''
+  say 'This permanently deletes the listed resources and their application state.'
+  printf 'Type "%s" to continue: ' "$project"
+  IFS= read -r answer || fail 'confirmation cancelled'
+  [ "$answer" = "$project" ] || fail 'confirmation cancelled'
+fi
+
+run() {
+  printf '  '
+  printf '%q ' "$@"
+  printf '\n'
+  if ! "$dry_run"; then "$@"; fi
+}
+each() {
+  local items="$1" item
+  shift
+  [ -n "$items" ] || return 0
+  while IFS= read -r item; do run "$@" "$item"; done <<< "$items"
+}
+
+say ''
+# Stop every project container before removing any of them. --volumes on rm also
+# removes anonymous volumes; named volumes are removed explicitly afterwards.
+each "$containers" docker container stop
+each "$containers" docker container rm --volumes
+each "$volumes" docker volume rm
+each "$networks" docker network rm
+each "$images" docker image rm
+each "$dangling_images" docker image rm
+if "$reset_data" && [ -d "$data_dir" ]; then
+  run rm -rf -- "$data_dir"
+fi
+
+if "$dry_run"; then
+  say 'Dry run complete; nothing changed.'
+else
+  say 'Cleanup complete. To reinstall:'
+  say '  bin/setup'
+  say '  docker compose build --pull --no-cache'
+  say '  docker compose up -d'
+  say '  bin/status'
+fi
