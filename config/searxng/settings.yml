@@ -43,6 +43,9 @@ outgoing:
 # doesn't starve results — Google/Bing/Startpage/Mojeek/Wikipedia carry the load.
 # Entries merge by name onto SearXNG's defaults (use_default_settings: true);
 # weights bias ranking toward the most reliable engines.
+# The braveapi engine is not listed here: it needs an API key, so
+# docker/searxng/entrypoint.sh adds it at startup when BRAVE_API_KEY is set
+# in .env. Keep secrets out of this file; it is tracked by git.
 engines:
   - name: google
     disabled: false

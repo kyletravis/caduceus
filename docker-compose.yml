@@ -160,8 +160,13 @@ services:
       - "127.0.0.1:${SEARXNG_PORT:-8088}:8080"
     volumes:
       - ./config/searxng:/etc/searxng:rw
+      - ./docker/searxng:/opt/caduceus/searxng:ro
+    # Adds secret-bearing engines (braveapi) to a private copy of the settings,
+    # then runs the image's own entrypoint.
+    entrypoint: ["/bin/sh", "/opt/caduceus/searxng/entrypoint.sh"]
     environment:
       SEARXNG_SECRET: "${SEARXNG_SECRET}"
+      BRAVE_API_KEY: "${BRAVE_API_KEY:-}"
 
   searxng-valkey:
     image: valkey/valkey:8-alpine
