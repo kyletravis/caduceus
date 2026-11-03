@@ -7,6 +7,9 @@
 # Runtime state: Hermes config, sessions, uploads.
 /data/
 
+# Local snapshots written by bin/caduceus-backup.sh.
+/backups/
+
 # OS / editor cruft
 .DS_Store
 *.swp
