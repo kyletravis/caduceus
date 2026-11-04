@@ -69,6 +69,9 @@ docker compose up -d
 bin/status
 ```
 
+To run several independent instances on one machine, for example one per
+person, see [Run more than one instance](INSTALL.md#10-run-more-than-one-instance-optional).
+
 ## What's in this repository
 
 This repository holds only the orchestration. It does not include the upstream projects' code.

@@ -58,7 +58,13 @@ case "$args" in
   ' image ls '*|' images '*)
     [ "${MOCK_EMPTY:-0}" != 1 ] || exit 0
     case "$args" in
-      *'reference=caduceus-'*) printf 'caduceus-hermes:local\ncaduceus-hermes:previous\n' ;;
+      # Other instances share the Docker host, so built tags must be matched
+      # exactly for this project, never by a caduceus-* style pattern.
+      *'reference='*'*'*) printf 'Image reference is a pattern: %s\n' "$*" >&2; exit 95 ;;
+      *" reference=$project-hermes "*" reference=$project-obsidian-sync "*)
+        printf '%s-hermes:local\n%s-hermes:previous\n%s-obsidian-sync:local\n' \
+          "$project" "$project" "$project" ;;
+      *'reference='*) printf 'Image references were not project scoped: %s\n' "$*" >&2; exit 96 ;;
       *"label=com.docker.compose.project=$project"*) printf 'sha256:dangling-project\n' ;;
       *) printf 'Images were not scoped: %s\n' "$*" >&2; exit 92 ;;
     esac
@@ -135,6 +141,7 @@ contains "$MOCK_MUTATIONS" container-orphan || fail 'orphan container was missed
 contains "$MOCK_MUTATIONS" caduceus_retired-data || fail 'retired volume was missed'
 contains "$MOCK_MUTATIONS" network-project || fail 'project network was missed'
 contains "$MOCK_MUTATIONS" caduceus-hermes:local || fail 'built image was missed'
+contains "$MOCK_MUTATIONS" caduceus-obsidian-sync:local || fail 'built sync image was missed'
 contains "$MOCK_MUTATIONS" sha256:dangling-project || fail 'dangling project image was missed'
 [ -f "$TEST_ROOT/repo/data/hermes/session" ] || fail 'default cleanup removed host state'
 printf 'ok: cleanup includes orphan resources and preserves host state by default\n'
@@ -204,7 +211,18 @@ clear_logs
 run --dry-run --project-name caduceus-test
 expect_no_mutations
 contains "$MOCK_LOG" label=com.docker.compose.project=caduceus-test || fail 'project override was not used'
+contains "$MOCK_LOG" reference=caduceus-test-hermes || fail 'project override did not scope image tags'
 printf 'ok: project override scopes resource queries\n'
+
+# A second instance on the same host must not take the first one's images.
+export MOCK_PROJECT=dana
+clear_logs
+run --yes
+contains "$MOCK_MUTATIONS" dana-hermes:local || fail 'instance image was missed'
+contains "$MOCK_MUTATIONS" dana-obsidian-sync:local || fail 'instance sync image was missed'
+if contains "$MOCK_MUTATIONS" caduceus-; then fail 'cleanup removed another instance'"'"'s images'; fi
+printf 'ok: cleanup of one instance leaves other instances'"'"' images alone\n'
+export MOCK_PROJECT=caduceus
 
 export MOCK_PROJECT=123
 export MOCK_QUOTE_PROJECT=1

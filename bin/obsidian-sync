@@ -27,8 +27,13 @@ case "${1:-}" in
       ob_once sync-list-remote
       read -rp "Remote vault to sync (name or ID): " remote
     fi
+    # Name the device after the instance, so several instances on one machine
+    # are told apart in Obsidian's device list.
+    project="$(docker compose config 2>/dev/null | sed -n 's/^name: //p' | tr -d "\"'")"
+    device="Caduceus"
+    [ "${project:-caduceus}" = caduceus ] || device="Caduceus ($project)"
     # End-to-end encrypted vaults prompt for their password here.
-    ob_once sync-setup --vault "$remote" --path /vault --device-name Caduceus
+    ob_once sync-setup --vault "$remote" --path /vault --device-name "$device"
     # The first sync only downloads, so the remote copy wins over stale local
     # files. Files that exist only locally upload once two-way sync starts.
     ob_once sync-config --path /vault --mode pull-only >/dev/null

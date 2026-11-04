@@ -152,7 +152,7 @@ Or open the dashboard at <http://127.0.0.1:9119> and sign in with `DASHBOARD_USE
 
 In group rooms the bot answers only when @mentioned. To list rooms where it should answer every message, use `MATRIX_FREE_RESPONSE_ROOMS`, with room IDs that start with `!`.
 
-> **Run only one copy of a bot account.** Two Caduceus instances, or a test copy, logged in with the same account create duplicate devices. That breaks encrypted sessions. Stop the old instance before starting a new one.
+> **Run only one copy of a bot account.** Two Caduceus instances, or a test copy, logged in with the same account create duplicate devices. That breaks encrypted sessions. Stop the old instance before starting a new one. To run several instances side by side (step 10), give each its own bot account.
 
 ## 9. Sync your Obsidian vault (optional)
 
@@ -166,6 +166,57 @@ Check on it with `bin/obsidian-sync status` or `docker compose logs -f obsidian-
 
 > **Use one sync client per folder.** Don't also open this vault in the Obsidian desktop app with Sync turned on: two clients syncing the same folder cause conflicts.
 
+## 10. Run more than one instance (optional)
+
+Several people can each have their own Caduceus on one machine. Each instance
+has its own conversations, memory, Matrix bot and vault. Use one checkout per
+instance:
+
+```bash
+git clone <this-repository-url> ~/caduceus-dana
+cd ~/caduceus-dana
+bin/setup --instance dana
+```
+
+`--instance` sets `COMPOSE_PROJECT_NAME` in that checkout's `.env`. Docker
+Compose scopes containers, volumes, networks and the built images
+(`dana-hermes:local`, `dana-obsidian-sync:local`) by this name, so instances
+never share state. Setup refuses a name that another checkout already uses.
+When setup creates `.env`, it moves `API_SERVER_PORT`, `DASHBOARD_PORT` and
+`SEARXNG_PORT` past any port already used by a listener or by another
+container, including stopped ones, and prints the ports it chose. Then
+configure, build and start the new checkout as in steps 4 and 5. Every
+command, including `bin/status` and `bin/cleanup`, acts only on the instance
+of the checkout it runs from.
+
+Each instance needs:
+
+- **Its own Matrix bot account** (step 8). Two instances logged in to the same
+  account break encrypted sessions.
+- **Its own vault folder and Obsidian Sync vault** (step 9). The default
+  `OBSIDIAN_VAULT_DIR` is already inside each checkout. Sync shows the device as
+  `Caduceus (dana)`.
+- **About 8 GB more memory for Docker.** Each instance runs its own headless browser.
+
+All instances can use the same model server. Concurrent conversations queue on
+it unless it serves requests in parallel; for Ollama, set
+`OLLAMA_NUM_PARALLEL`.
+
+Run every checkout as the same host user: Docker Desktop runs one engine per
+user account. That user can read every instance's data, so whoever administers
+the machine can see every instance's conversations.
+
+The dashboard stays bound to localhost. To use an instance from another
+computer, open an SSH tunnel to that instance's `DASHBOARD_PORT`, for example:
+
+```bash
+ssh -N -L 9119:localhost:9129 you@server    # then open http://127.0.0.1:9119
+```
+
+Existing single-instance installs keep working unchanged. Without
+`COMPOSE_PROJECT_NAME`, the instance is named `caduceus`, and it is the only
+instance that can keep that name.
+
 ## Day-to-day operation
 
 | Task | Command |
@@ -178,13 +229,15 @@ Check on it with `bin/obsidian-sync status` or `docker compose logs -f obsidian-
 | Apply `.env` changes | `docker compose up -d` |
 | Hermes CLI | `docker compose exec hermes hermes --help` |
 
-**Back up** these three things together:
+**Back up** these things together:
 - `.env`
 - `data/hermes/`
 - `data/obsidian/`, if you use the default vault
-- the Docker volumes listed by `docker volume ls --filter name=caduceus_`
+- the Docker volumes listed by `docker volume ls --filter label=com.docker.compose.project=caduceus`
 
-To back up a volume, stop the stack first, then run for example:
+Replace `caduceus` with your `COMPOSE_PROJECT_NAME` if you set one (step 10);
+volume names start with that name and an underscore. To back up a volume, stop
+the stack first, then run for example:
 
 ```bash
 docker run --rm -v caduceus_hermes-mnemosyne-data:/v -v "$PWD/backups:/b" alpine tar czf /b/mnemosyne-data.tgz -C /v .
@@ -226,8 +279,10 @@ bin/check-integrations
 `bin/cleanup` lists its targets and asks you to type the Compose project name
 before deleting them. Use `--yes` to skip that prompt in an automated test.
 It removes the project's containers (including retired services), attached
-anonymous volumes, all project-labeled named volumes and networks, `caduceus-*`
-image tags, and dangling images labeled for the project. Images still required
+anonymous volumes, all project-labeled named volumes and networks, the
+project's own image tags (`caduceus-hermes` and `caduceus-obsidian-sync`, or
+`<instance>-…` for another instance), and dangling images labeled for the
+project. Other instances on the same machine are left alone. Images still required
 by other containers are protected by Docker; cleanup stops if removal fails.
 
 **This erases databases, learned memories, integration dependencies and Matrix
@@ -261,7 +316,9 @@ projects. The script uses this checkout's `docker-compose.yml` and resolves
 | `bin/status` says Models FAILED | The model server is down, or unreachable from Docker. On Linux, see the `OLLAMA_HOST` note in step 2. Some servers accept loopback connections only; containers reach the host as `host.docker.internal`, which must be allowed. |
 | A page comes back as `Prove your humanity` or a similar challenge | The site blocks automated browsers. Iris does not solve CAPTCHAs. Use a different source for that page. |
 | `hermes-init` prints `Keeping user-managed Iris plugin` | `data/hermes/plugins/web/iris` exists but was not installed by Caduceus. Remove it and run `docker compose up -d` to use the bundled copy. |
-| `port is already allocated` on start | Another service is using a port. Change `API_SERVER_PORT`, `DASHBOARD_PORT` or `SEARXNG_PORT` in `.env`. |
+| `port is already allocated` on start | Another service or instance is using a port. Change `API_SERVER_PORT`, `DASHBOARD_PORT` or `SEARXNG_PORT` in `.env`. |
+| `bin/setup` says the instance already exists in another checkout | Two checkouts would share one set of containers and volumes. Use a different name with `bin/setup --instance NAME` (step 10). |
+| `Conflict. The container name "/caduceus-hermes" is already in use` | A checkout that predates multi-instance support still uses fixed container names. Update that checkout (`git pull`, then `docker compose up -d`) or give the new one a different instance name. |
 | Matrix: bot can't read encrypted messages | Usually a second login created a new device. Make sure only one instance runs, `MATRIX_DEVICE_ID` is fixed, and `MATRIX_RECOVERY_KEY` is set. Restart `hermes`. |
 | Files in `data/hermes` are owned by root | `HERMES_UID`/`HERMES_GID` don't match your user. Re-run `bin/setup` (it sets them), fix ownership with `sudo chown -R "$(id -u):$(id -g)" data`, then `docker compose up -d`. |
 

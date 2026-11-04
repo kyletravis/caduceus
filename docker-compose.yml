@@ -14,6 +14,11 @@
 # Every setting comes from .env (copy .env.example). Services reach each other
 # by service name on the `caduceus` network, and reach model servers running
 # on the host via host.docker.internal.
+#
+# Several instances can share one Docker host: give each checkout its own
+# COMPOSE_PROJECT_NAME and host ports in .env (bin/setup --instance NAME).
+# Containers, volumes, networks and built image tags are all scoped by that
+# name, which defaults to `caduceus` below.
 # ============================================================================
 
 name: caduceus
@@ -74,7 +79,7 @@ services:
   # Prepare integrations before the gateway and dashboard start. Installation
   # failures stop startup instead of silently disabling external memory/tools.
   hermes-init:
-    image: caduceus-hermes:local
+    image: ${COMPOSE_PROJECT_NAME}-hermes:local
     pull_policy: never
     restart: "no"
     <<: *host-gateway
@@ -95,8 +100,7 @@ services:
   # ==========================================================================
   hermes:
     build: ./vendor/hermes-agent
-    image: caduceus-hermes:local
-    container_name: caduceus-hermes
+    image: ${COMPOSE_PROJECT_NAME}-hermes:local
     restart: unless-stopped
     <<: *host-gateway
     networks: [caduceus]
@@ -151,7 +155,6 @@ services:
   # ==========================================================================
   searxng:
     image: searxng/searxng:2026.10.24-ef0ec03da
-    container_name: caduceus-searxng
     restart: unless-stopped
     networks: [caduceus]
     depends_on:
@@ -170,7 +173,6 @@ services:
 
   searxng-valkey:
     image: valkey/valkey:8-alpine
-    container_name: caduceus-searxng-valkey
     restart: unless-stopped
     networks: [caduceus]
     command: valkey-server --save 30 1 --loglevel warning
@@ -185,8 +187,7 @@ services:
   # ==========================================================================
   obsidian-sync:
     build: ./docker/obsidian-sync
-    image: caduceus-obsidian-sync:local
-    container_name: caduceus-obsidian-sync
+    image: ${COMPOSE_PROJECT_NAME}-obsidian-sync:local
     restart: unless-stopped
     volumes:
       - "${OBSIDIAN_VAULT_DIR:-./data/obsidian}:/vault"

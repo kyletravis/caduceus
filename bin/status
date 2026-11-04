@@ -8,6 +8,8 @@ cd "$ROOT"
 env_get() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- || true; }
 port() { local p; p="$(env_get "$1")"; printf '%s' "${p:-$2}"; }
 
+project="$(docker compose config 2>/dev/null | sed -n 's/^name: //p' | tr -d "\"'")"
+echo "Instance: ${project:-unknown}"
 docker compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'
 echo
 

@@ -8,6 +8,12 @@
 #      pinned in versions.env, and apply the patches in ./patches.
 #   3. Create the Hermes data directory and install the starter config.
 #
+# Usage: bin/setup [--instance NAME]
+#
+#   --instance NAME  Name this checkout's instance (COMPOSE_PROJECT_NAME), to
+#                    run it beside other Caduceus instances on the same Docker
+#                    host. Use one checkout per instance. Default: caduceus.
+#
 # Afterwards: edit .env (models, optional Matrix), then
 #   docker compose build && docker compose up -d
 set -euo pipefail
@@ -16,6 +22,21 @@ cd "$ROOT"
 
 say()  { printf '%s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+instance=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --instance)
+      [ "$#" -ge 2 ] && [[ "$2" =~ ^[a-z0-9][a-z0-9_-]*$ ]] ||
+        fail '--instance requires a name of lowercase letters, digits, "-" or "_"'
+      instance="$2"
+      shift
+      ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) fail "unknown argument: $1 (see --help)" ;;
+  esac
+  shift
+done
 
 for cmd in git docker openssl; do
   command -v "$cmd" >/dev/null || fail "'$cmd' is required but not installed"
@@ -35,11 +56,79 @@ fill_if_empty() {  # fill_if_empty KEY VALUE
   if [ -z "$(env_get "$1")" ]; then env_set "$1" "$2"; say "  generated $1"; fi
 }
 
+env_has() { grep -qE "^$1=" .env; }
+
+# ---------------------------------------------------------------------------
+# Instance name. An existing .env keeps its name; older ones without the key
+# use the Compose default, `caduceus`.
+# ---------------------------------------------------------------------------
+current_project=""
+if [ -f .env ]; then
+  current_project="$(env_get COMPOSE_PROJECT_NAME | tr -d "\"'")"
+  current_project="${current_project:-caduceus}"
+  if [ -n "$instance" ] && [ "$instance" != "$current_project" ]; then
+    fail "this checkout is already instance '$current_project'. Renaming it would orphan its volumes; edit COMPOSE_PROJECT_NAME in .env by hand if you really mean to."
+  fi
+fi
+project="${instance:-${current_project:-caduceus}}"
+
+# Another checkout already using this project name would share, and clobber,
+# this one's containers and volumes.
+if docker info >/dev/null 2>&1; then
+  owner="$(docker compose ls --all --format json | tr '{' '\n' |
+    grep -F "\"Name\":\"$project\"," |
+    sed -n 's/.*"ConfigFiles":"\([^"]*\)".*/\1/p' || true)"
+  if [ -n "$owner" ]; then
+    root_physical="$(pwd -P)"
+    case ",$owner" in
+      *",$ROOT/"*|*",$root_physical/"*) ;;
+      *) fail "instance '$project' already exists in another checkout ($owner). Choose a different name: bin/setup --instance NAME" ;;
+    esac
+  fi
+else
+  say "  WARNING: cannot reach Docker; skipping instance and port conflict checks"
+fi
+
 say "==> Settings (.env)"
+created_env=false
 if [ ! -f .env ]; then
   cp .env.example .env
   chmod 600 .env
+  created_env=true
   say "  created .env from .env.example"
+fi
+if [ -n "$instance" ] || ! env_has COMPOSE_PROJECT_NAME; then
+  if env_has COMPOSE_PROJECT_NAME; then
+    env_set COMPOSE_PROJECT_NAME "$project"
+  else
+    printf '\nCOMPOSE_PROJECT_NAME=%s\n' "$project" >> .env
+  fi
+fi
+
+# A new .env gets host ports that no listener and no other container (running
+# or stopped) is using, so instances can start side by side. Existing .env
+# ports are never changed.
+if "$created_env"; then
+  reserved=" "
+  if docker info >/dev/null 2>&1; then
+    reserved+="$(docker ps -aq | xargs docker inspect --format \
+      '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{.HostPort}} {{end}}{{end}}' \
+      2>/dev/null | tr '\n' ' ' || true)"
+  fi
+  port_busy() {
+    case "$reserved" in *" $1 "*) return 0 ;; esac
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+  }
+  for key in API_SERVER_PORT DASHBOARD_PORT SEARXNG_PORT; do
+    port="$(env_get "$key")"
+    start="$port"
+    while port_busy "$port"; do port=$((port + 1)); done
+    reserved+="$port "
+    if [ "$port" != "$start" ]; then
+      env_set "$key" "$port"
+      say "  $key $start is in use; using $port"
+    fi
+  done
 fi
 env_set HERMES_UID "$(id -u)"
 env_set HERMES_GID "$(id -g)"
@@ -126,7 +215,10 @@ else
 fi
 
 say ""
-say "Setup complete."
+say "Setup complete for instance '$project'."
+say "  API        http://127.0.0.1:$(env_get API_SERVER_PORT)/v1"
+say "  Dashboard  http://127.0.0.1:$(env_get DASHBOARD_PORT)"
+say "  SearXNG    http://127.0.0.1:$(env_get SEARXNG_PORT)"
 if [ -n "$new_dashboard_password" ]; then
   say "Dashboard login: $(env_get DASHBOARD_USERNAME) / $new_dashboard_password  (stored in .env)"
 fi

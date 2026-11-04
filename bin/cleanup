@@ -11,7 +11,9 @@ usage() {
 Usage: bin/cleanup [--dry-run] [--reset-data] [--yes] [--project-name NAME]
 
 Remove the Compose project's containers (including orphans), named and attached
-anonymous volumes, networks, Caduceus image tags, and dangling project images.
+anonymous volumes, networks, its built image tags (<project>-hermes and
+<project>-obsidian-sync), and dangling project images. Other Caduceus instances
+on the same Docker host are left alone.
 This permanently deletes databases, learned memories and Matrix encryption state.
 
   --dry-run            Show resources and commands without changing anything.
@@ -90,9 +92,11 @@ containers="$(docker container ls --all --quiet --filter "label=$label")"
 volumes="$(docker volume ls --quiet --filter "label=$label")"
 networks="$(docker network ls --quiet --filter "label=$label")"
 # Delete tags rather than forcing image IDs, so unrelated tags and images in use
-# by other applications remain protected by Docker. The label catches old builds
-# whose caduceus-* tag was replaced during a rebuild.
-images="$(docker image ls --filter 'reference=caduceus-*' --format '{{.Repository}}:{{.Tag}}' | sort -u)"
+# by other applications remain protected by Docker. Match this project's own
+# tags exactly: a caduceus-* pattern would also take other instances' images.
+# The label catches old builds whose tag was replaced during a rebuild.
+images="$(docker image ls --filter "reference=$project-hermes" --filter "reference=$project-obsidian-sync" \
+  --format '{{.Repository}}:{{.Tag}}' | sort -u)"
 dangling_images="$(docker image ls --quiet --filter dangling=true --filter "label=$label" | sort -u)"
 
 show() {
