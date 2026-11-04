@@ -1,0 +1,20 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index ee469ebe18..65fc1f478d 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -666,6 +666,15 @@ override-dependencies = [
+   # never builds a misaki G2P. The never-true marker removes it from the lock.
+   # Remove this line when misaki drops it or a 3.14-capable release fits.
+   "spacy-curated-transformers; sys_platform == 'never'",
++  # Caduceus: mnemosyne-memory[embeddings] caps onnxruntime below 1.29 only to
++  # quiet blkid stderr on minimal aarch64 Linux, and no earlier release has
++  # Python 3.14 wheels. Keep this equal to the locked version. onnxruntime has
++  # no Intel macOS or Android wheel, so the marker drops it there, as for
++  # KittenTTS; the universal lock otherwise fails on those platforms.
++  "onnxruntime==1.31.0; (platform_machine != 'x86_64' or sys_platform != 'darwin') and sys_platform != 'android'",
++  # Caduceus: sqlite-vec, also from mnemosyne-memory[embeddings], has no Android
++  # or Windows ARM64 wheel. Same exact version as Mnemosyne's own pin.
++  "sqlite-vec==0.1.9; sys_platform != 'android' and (platform_machine != 'ARM64' or sys_platform != 'win32')",
+ ]
+ # Release-age check: Hermes's dependencies must be at least 3 days old when Hermes
+ # locks them. It runs where uv.lock is resolved (`hermes pm lock`, and CI's lock

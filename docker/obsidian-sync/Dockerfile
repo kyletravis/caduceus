@@ -1,6 +1,6 @@
 # Obsidian Headless: the official command-line Obsidian Sync client.
 # https://obsidian.md/help/sync/headless
-FROM node:22.23.3-bookworm-slim
+FROM node:22.23.4-bookworm-slim
 
 ARG OBSIDIAN_HEADLESS_VERSION=0.0.14
 

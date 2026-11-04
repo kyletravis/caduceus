@@ -147,6 +147,29 @@ fi
 # shellcheck source=../versions.env
 . ./versions.env
 
+# The checkout being moved may carry patches from an older Caduceus release:
+# renamed, rebased or since removed. Reverse any earlier version of a file in
+# patches/ (from this repository's history) that still cleanly comes out.
+unapply_previous_patches() {  # unapply_previous_patches DIR
+  local dir="$1" blob tmp progress=true
+  [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ] || return 0
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  tmp="$(mktemp)"
+  while "$progress"; do
+    progress=false
+    for blob in $(git -C "$ROOT" log --format= --raw --no-abbrev -- patches/ |
+                  awk '$4 != "0000000000000000000000000000000000000000" {print $4}' | awk '!seen[$0]++'); do
+      git -C "$ROOT" cat-file blob "$blob" > "$tmp"
+      if git -C "$dir" apply --reverse --check "$tmp" 2>/dev/null; then
+        git -C "$dir" apply --reverse "$tmp"
+        say "  removed an earlier Caduceus patch ($blob)"
+        progress=true
+      fi
+    done
+  done
+  rm -f "$tmp"
+}
+
 fetch() {  # fetch NAME REPO REF COMMIT [OUR_PATCH...]
   local name="$1" repo="$2" ref="$3" commit="$4" dir="vendor/$1" patch
   shift 4
@@ -166,6 +189,7 @@ fetch() {  # fetch NAME REPO REF COMMIT [OUR_PATCH...]
         git -C "$dir" apply --reverse "$ROOT/$patch"
       fi
     done
+    unapply_previous_patches "$dir"
   fi
   if [ "$head" = "$commit" ]; then
     say "  $name already at $ref"
@@ -192,8 +216,8 @@ apply() {  # apply DIR PATCH
 say "==> Upstream sources (vendor/)"
 mkdir -p vendor
 fetch hermes-agent "$HERMES_REPO"    "$HERMES_REF"    "$HERMES_COMMIT" \
-  patches/hermes-plugin-workspace.patch patches/hermes-control-socket-mode.patch
-apply vendor/hermes-agent patches/hermes-plugin-workspace.patch
+  patches/hermes-mnemosyne-dependencies.patch patches/hermes-control-socket-mode.patch
+apply vendor/hermes-agent patches/hermes-mnemosyne-dependencies.patch
 apply vendor/hermes-agent patches/hermes-control-socket-mode.patch
 sh docker/hermes/write-build-stamp.sh vendor/hermes-agent "$HERMES_REF"
 

@@ -1,42 +1,32 @@
 diff --git a/gateway/control_socket.py b/gateway/control_socket.py
-index f5a8122f18..9a102b63fc 100644
+index ddcb81aa7e..1679be96e9 100644
 --- a/gateway/control_socket.py
 +++ b/gateway/control_socket.py
-@@ -226,8 +226,9 @@ class GatewayControlServer:
-             logger.warning("Gateway control socket failed to start (non-fatal): %s", exc)
-             return False
- 
--    async def _start_posix(self) -> bool:
--        bind_path, pointer_file = resolve_server_socket_path(self._home)
-+    async def _start_posix(self, fallback: bool = False) -> bool:
-+        bind_path, pointer_file = ((_fallback_socket_path(self._home), self._home / _POINTER_FILENAME)
-+                                   if fallback else resolve_server_socket_path(self._home))
-         if pointer_file is not None:
-             with contextlib.suppress(FileExistsError):
-                 bind_path.parent.mkdir(mode=0o700)
-@@ -253,6 +254,16 @@ class GatewayControlServer:
-             os.umask(old_umask)
-         with contextlib.suppress(OSError):
-             os.chmod(bind_path, 0o600)
+@@ -245,6 +245,18 @@ class GatewayControlServer:
+                            self._home, exc.strerror or exc)
+             pointer_file = Path(self._home) / _POINTER_FILENAME
+             bind_path = await self._bind_posix(_fallback_socket_path(self._home), pointer_file)
 +        if pointer_file is None and stat.S_IMODE(bind_path.lstat().st_mode) & 0o077:
-+            # Some filesystems cannot store a socket's mode (a Docker Desktop bind mount reports 0755
-+            # whatever chmod asks) and clients refuse an open socket: serve from the temp-dir
-+            # fallback instead, as for a home too long for sun_path.
-+            logger.warning("Control socket %s cannot be made private; using a temp-dir socket", bind_path)
++            # Some filesystems accept the socket but cannot store its mode (a Docker Desktop bind
++            # mount reports 0755 whatever chmod asks) and clients refuse an open socket: serve from
++            # the same private temp-dir socket + pointer as a home that refuses sockets.
++            logger.warning("Control socket %s cannot be made private; listening in a private temp directory",
++                           bind_path)
 +            self._server.close()
 +            await self._server.wait_closed()
 +            self._server = None
 +            bind_path.unlink(missing_ok=True)
-+            return await self._start_posix(fallback=True)
++            pointer_file = Path(self._home) / _POINTER_FILENAME
++            bind_path = await self._bind_posix(_fallback_socket_path(self._home), pointer_file)
          self._bind_path = bind_path
          info = bind_path.lstat()
          self._file_identities[bind_path] = (info.st_dev, info.st_ino)
 diff --git a/tests/gateway/test_control_socket.py b/tests/gateway/test_control_socket.py
-index c0a9cf026a..ecfae68bd7 100644
+index 7f802868cd..9aa2d53fe3 100644
 --- a/tests/gateway/test_control_socket.py
 +++ b/tests/gateway/test_control_socket.py
-@@ -250,6 +250,35 @@ def test_long_home_end_to_end_via_pointer(tmp_path: Path):
-     assert not (deep / "gateway.sock.path").exists()
+@@ -330,6 +330,35 @@ def test_bind_refused_for_other_reasons_still_fails(short_home: Path, monkeypatc
+     assert not (home / "gateway.sock.path").exists()
  
  
 +def test_home_that_cannot_hold_private_socket_uses_pointer(home: Path, monkeypatch):
@@ -68,6 +58,6 @@ index c0a9cf026a..ecfae68bd7 100644
 +    assert not (home / "gateway.sock.path").exists()
 +
 +
- def test_no_socket_returns_none_fast(home: Path):
-     assert identify_gateway(home) is None
-     assert query_gateway_control(home, "status") is None
+ def test_long_home_end_to_end_via_pointer(tmp_path: Path):
+     deep = tmp_path / ("p" * 120) / ".hermes"
+     deep.mkdir(parents=True)

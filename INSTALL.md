@@ -246,7 +246,7 @@ docker run --rm -v caduceus_hermes-mnemosyne-data:/v -v "$PWD/backups:/b" alpine
 **Upgrade** deliberately:
 1. Change the refs and commits in `versions.env`, and the dated SearXNG image
    tag in `docker-compose.yml` when updating search.
-2. Run `bin/setup`. It moves `vendor/` and re-applies the patches. If a patch no longer applies, it stops and tells you.
+2. Run `bin/setup`. It takes out the patches, including ones an earlier Caduceus release applied, moves `vendor/`, and re-applies the current patches. If a patch no longer applies, it stops and tells you.
 3. Run `docker compose pull searxng`, then
    `docker compose build && docker compose up -d`.
 4. Run `bin/status` and `bin/check-integrations`.

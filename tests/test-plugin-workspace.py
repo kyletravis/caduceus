@@ -42,7 +42,7 @@ class PluginWorkspaceTests(unittest.TestCase):
         self.core.mkdir()
         self.plugin.mkdir()
         (self.core / "pyproject.toml").write_text(
-            '[project]\nname = "hermes-agent"\nversion = "0.22.5"\n'
+            '[project]\nname = "hermes-agent"\nversion = "0.22.7"\n'
             'requires-python = ">=3.11"\ndependencies = []\n'
             '[tool.uv]\npackage = false\n'
         )
@@ -66,11 +66,12 @@ class PluginWorkspaceTests(unittest.TestCase):
             '[tool.uv]\npackage = false\n'
         )
         original = (self.plugin / "pyproject.toml").read_bytes()
-        _generate_pyproject([self.plugin], self.workspace, source=self.core)
+        _generate_pyproject([self.plugin], self.workspace, source=self.core, python=TOOLCHAIN[1])
         member = next((self.workspace / "plugin-sources").iterdir())
         document = tomllib.loads((member / "pyproject.toml").read_text())
-        self.assertEqual(document["dependency-groups"], tomllib.loads(manifest)["dependency-groups"])
-        self.assertEqual(document["tool"]["uv"]["sources"]["fixture-helper"], {"path": "helper"})
+        # Hermes 0.22.7 locks only what a plugin installs: development groups,
+        # and the Hermes git reference in them, never reach the workspace.
+        self.assertNotIn("dependency-groups", document)
         self.assertEqual((self.plugin / "pyproject.toml").read_bytes(), original)
         return document
 
@@ -93,15 +94,9 @@ class PluginWorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lock = tomllib.loads((self.workspace / "uv.lock").read_text())
         hermes = next(package for package in lock["package"] if package["name"] == "hermes-agent")
-        self.assertEqual(hermes["version"], "0.22.5")
+        self.assertEqual(hermes["version"], "0.22.7")
         self.assertNotIn("git", hermes["source"])
-        helper = next(package for package in lock["package"] if package["name"] == "fixture-helper")
-        self.assertEqual(helper["version"], "1.0.0")
-        plugin = next(package for package in lock["package"] if package["name"].startswith("hermes-plugin-"))
-        self.assertEqual(
-            {dependency["name"] for dependency in plugin["dev-dependencies"]["test"]},
-            {"hermes-agent", "fixture-helper"},
-        )
+        self.assertFalse(any("example.invalid" in str(package.get("source")) for package in lock["package"]))
 
 
 if __name__ == "__main__":
