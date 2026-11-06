@@ -225,7 +225,8 @@ instance that can keep that name.
 | Follow logs | `docker compose logs -f hermes` (or any service name) |
 | Restart the gateway and dashboard | `docker compose restart hermes` |
 | Check search, page reading and memory | `bin/check-integrations` |
-| Stop or start | `docker compose stop` / `docker compose start` |
+| Start (and show status) | `bin/start` (runs `docker compose up -d`) |
+| Stop | `bin/stop` (keeps containers) or `bin/stop --down` (removes them; data is kept) |
 | Apply `.env` changes | `docker compose up -d` |
 | Hermes CLI | `docker compose exec hermes hermes --help` |
 

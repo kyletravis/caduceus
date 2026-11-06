@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# Stop this instance. Containers are kept; `bin/start` brings them back.
+#   bin/stop [service...]        docker compose stop
+#   bin/stop --down [args...]    docker compose down (removes containers and
+#                                network; volumes and data/ are kept)
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+project="$(docker compose config 2>/dev/null | sed -n 's/^name: //p' | tr -d "\"'" || true)"
+echo "Instance: ${project:-unknown}"
+
+if [[ "${1:-}" == "--down" ]]; then
+  shift
+  docker compose down "$@"
+else
+  docker compose stop "$@"
+fi

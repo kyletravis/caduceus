@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#
+# Start (or update) this instance, then show its status.
+# Extra arguments go to `docker compose up -d`, e.g. `bin/start hermes`.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+docker compose up -d "$@"
+echo
+exec "$ROOT/bin/status"
