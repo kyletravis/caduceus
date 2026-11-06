@@ -18,11 +18,11 @@ Caduceus combines three open-source projects, Obsidian's official sync client an
 
 The AI models are whatever OpenAI-compatible server you point it at: Ollama, LM Studio, vLLM, a GPU router such as NVIDIA PAIR, or a hosted API.
 
-Upstream versions pinned as of November 4, 2026:
+Upstream versions pinned as of November 5, 2026:
 
 | Project | Version |
 |---|---|
-| Hermes Agent | [v0.22.7](https://github.com/NousResearch/hermes-agent/releases/tag/v0.22.7) |
+| Hermes Agent | [v0.23.0](https://github.com/NousResearch/hermes-agent/releases/tag/v0.23.0) |
 | Mnemosyne | 0.7.3 ([d738487](https://github.com/mnemosyne-oss/mnemosyne/commit/d73848735a2a48471a62d2c8fb96cd7183c97491), Hermes plugin catalog pin) |
 | Obsidian Headless | 0.0.14 (npm, pinned in `docker/obsidian-sync/Dockerfile`) |
 | SearXNG | [2026.11.2-cccbc9e15](https://hub.docker.com/r/searxng/searxng/tags?name=2026.11.2-cccbc9e15) (container build) |

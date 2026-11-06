@@ -42,7 +42,7 @@ class PluginWorkspaceTests(unittest.TestCase):
         self.core.mkdir()
         self.plugin.mkdir()
         (self.core / "pyproject.toml").write_text(
-            '[project]\nname = "hermes-agent"\nversion = "0.22.7"\n'
+            '[project]\nname = "hermes-agent"\nversion = "0.23.0"\n'
             'requires-python = ">=3.11"\ndependencies = []\n'
             '[tool.uv]\npackage = false\n'
         )
@@ -69,7 +69,7 @@ class PluginWorkspaceTests(unittest.TestCase):
         _generate_pyproject([self.plugin], self.workspace, source=self.core, python=TOOLCHAIN[1])
         member = next((self.workspace / "plugin-sources").iterdir())
         document = tomllib.loads((member / "pyproject.toml").read_text())
-        # Hermes 0.22.7 locks only what a plugin installs: development groups,
+        # Hermes 0.23.0 locks only what a plugin installs: development groups,
         # and the Hermes git reference in them, never reach the workspace.
         self.assertNotIn("dependency-groups", document)
         self.assertEqual((self.plugin / "pyproject.toml").read_bytes(), original)
@@ -94,7 +94,7 @@ class PluginWorkspaceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lock = tomllib.loads((self.workspace / "uv.lock").read_text())
         hermes = next(package for package in lock["package"] if package["name"] == "hermes-agent")
-        self.assertEqual(hermes["version"], "0.22.7")
+        self.assertEqual(hermes["version"], "0.23.0")
         self.assertNotIn("git", hermes["source"])
         self.assertFalse(any("example.invalid" in str(package.get("source")) for package in lock["package"]))
 

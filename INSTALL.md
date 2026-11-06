@@ -254,6 +254,14 @@ docker run --rm -v caduceus_hermes-mnemosyne-data:/v -v "$PWD/backups:/b" alpine
 
 Back up first. Upstream releases sometimes change config formats or database schemas.
 
+Hermes v0.23.0 needs no changes to Caduceus settings or data. If you customised
+Hermes beyond the starter config, check these upstream changes:
+- The old `browser_*` tools are gone; browser automation uses `browser_exec`.
+  Update any skills, prompts or toolset lists that name the old tools.
+- `hermes mcp serve` is now `hermes mcp-serve`.
+- The new Webapp is off unless `webapp.enabled: true`. The dashboard on
+  `DASHBOARD_PORT` is unchanged.
+
 To move Mnemosyne to a new catalog pin, change `MNEMOSYNE_COMMIT` in
 `versions.env` and run `docker compose up -d`. `hermes-init` reinstalls the
 plugin at the new commit. Mnemosyne migrates its database on first open.
