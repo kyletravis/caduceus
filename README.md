@@ -18,14 +18,14 @@ Caduceus combines three open-source projects, Obsidian's official sync client an
 
 The AI models are whatever OpenAI-compatible server you point it at: Ollama, LM Studio, vLLM, a GPU router such as NVIDIA PAIR, or a hosted API.
 
-Upstream versions pinned as of November 5, 2026:
+Upstream versions pinned as of November 19, 2026:
 
 | Project | Version |
 |---|---|
-| Hermes Agent | [v0.23.0](https://github.com/NousResearch/hermes-agent/releases/tag/v0.23.0) |
-| Mnemosyne | 0.7.3 ([d738487](https://github.com/mnemosyne-oss/mnemosyne/commit/d73848735a2a48471a62d2c8fb96cd7183c97491), Hermes plugin catalog pin) |
+| Hermes Agent | [v0.23.2](https://github.com/NousResearch/hermes-agent/releases/tag/v0.23.2) |
+| Mnemosyne | 0.7.7 ([7106311](https://github.com/mnemosyne-oss/mnemosyne/commit/7106311a95683cbb908b1f4f0f9f4df034aad50b), Hermes plugin catalog pin) |
 | Obsidian Headless | 0.0.14 (npm, pinned in `docker/obsidian-sync/Dockerfile`) |
-| SearXNG | [2026.11.2-cccbc9e15](https://hub.docker.com/r/searxng/searxng/tags?name=2026.11.2-cccbc9e15) (container build) |
+| SearXNG | [2026.11.19-368baa340](https://hub.docker.com/r/searxng/searxng/tags?name=2026.11.19-368baa340) (container build) |
 
 Mnemosyne is installed as a Hermes plugin from the plugin catalog, not cloned.
 Iris is part of this repository. SearXNG

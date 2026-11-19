@@ -262,6 +262,14 @@ Hermes beyond the starter config, check these upstream changes:
 - The new Webapp is off unless `webapp.enabled: true`. The dashboard on
   `DASHBOARD_PORT` is unchanged.
 
+Hermes v0.23.2 migrates the config to version 53 on first start. The default
+`agent.clarify_timeout` drops from an hour to 90 seconds, so an unanswered
+question from the agent is cancelled sooner. A value you set yourself is kept;
+set `agent.clarify_timeout: 3600` to keep the old wait.
+
+Mnemosyne 0.7.7 migrates its database on first open. Going back to an earlier
+Mnemosyne means restoring a backup taken before the upgrade.
+
 To move Mnemosyne to a new catalog pin, change `MNEMOSYNE_COMMIT` in
 `versions.env` and run `docker compose up -d`. `hermes-init` reinstalls the
 plugin at the new commit. Mnemosyne migrates its database on first open.
