@@ -270,6 +270,11 @@ set `agent.clarify_timeout: 3600` to keep the old wait.
 Mnemosyne 0.7.7 migrates its database on first open. Going back to an earlier
 Mnemosyne means restoring a backup taken before the upgrade.
 
+Hermes v0.23.3 migrates the config to version 54 on first start. The default
+`prompt_caching.cache_ttl` changes from `5m` to `auto`, which only matters for
+Claude models reached through OpenRouter or the Anthropic API. The starter
+config does not set it. Mnemosyne stays at 0.7.7.
+
 To move Mnemosyne to a new catalog pin, change `MNEMOSYNE_COMMIT` in
 `versions.env` and run `docker compose up -d`. `hermes-init` reinstalls the
 plugin at the new commit. Mnemosyne migrates its database on first open.
