@@ -154,7 +154,7 @@ services:
   # SearXNG: privacy-respecting metasearch (JSON API on :8080)
   # ==========================================================================
   searxng:
-    image: searxng/searxng:2026.11.21-c6ee3e9fd
+    image: searxng/searxng:2026.11.26-b5605b8f2
     restart: unless-stopped
     networks: [caduceus]
     depends_on:

@@ -275,6 +275,9 @@ Hermes v0.23.3 migrates the config to version 54 on first start. The default
 Claude models reached through OpenRouter or the Anthropic API. The starter
 config does not set it. Mnemosyne stays at 0.7.7.
 
+Hermes v0.23.4 needs no changes to Caduceus settings or data. The config
+stays at version 54 and Mnemosyne stays at 0.7.7.
+
 To move Mnemosyne to a new catalog pin, change `MNEMOSYNE_COMMIT` in
 `versions.env` and run `docker compose up -d`. `hermes-init` reinstalls the
 plugin at the new commit. Mnemosyne migrates its database on first open.
